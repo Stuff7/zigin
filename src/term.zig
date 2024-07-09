@@ -6,6 +6,8 @@ const c = @cImport({
     @cInclude("unistd.h");
 });
 
+pub const stdout = std.io.getStdOut().writer();
+
 pub fn readln(prompt: str, buf: *std.ArrayList(u8)) !void {
     var pos = buf.items.len;
 
@@ -16,18 +18,16 @@ pub fn readln(prompt: str, buf: *std.ArrayList(u8)) !void {
         }
     }
 
-    std.debug.print("\n", .{});
+    try stdout.print("\n", .{});
 }
 
 fn promptln(prompt: str, input: str, cursor: usize) !void {
-    std.debug.print("{s}\r{s}{s}\r", .{ CLEAR, prompt, input });
+    try stdout.print("{s}\r{s}{s}\r", .{ CLEAR, prompt, input });
     const pos = cursor + prompt.len;
 
     if (pos > 0) {
-        std.debug.print("\x1b[{}C", .{pos});
+        try stdout.print("\x1b[{}C", .{pos});
     }
-
-    // io::stdout().flush()
 }
 
 fn readch(buf: *std.ArrayList(u8), pos: *usize) !Key {
@@ -54,15 +54,12 @@ fn readch(buf: *std.ArrayList(u8), pos: *usize) !Key {
             }
         },
         Key.CtrlBackspace => {
-            if (std.mem.lastIndexOf(u8, buf.items[0..pos.*], " ")) |*idx| {
-                try buf.replaceRange(idx.*, pos.* - idx.*, "");
-                pos.* = idx.*;
-            }
+            const idx = std.mem.lastIndexOf(u8, buf.items[0..pos.*], " ") orelse 0;
+            try buf.replaceRange(idx, pos.* - idx, "");
+            pos.* = idx;
         },
         Key.CtrlArrowLeft => {
-            if (std.mem.lastIndexOf(u8, buf.items[0..pos.*], " ")) |*idx| {
-                pos.* = idx.*;
-            }
+            pos.* = std.mem.lastIndexOf(u8, buf.items[0..pos.*], " ") orelse 0;
         },
         Key.CtrlArrowRight => {
             while (pos.* < buf.items.len) {
@@ -106,7 +103,7 @@ pub const Key = enum {
     CtrlArrowLeft,
 };
 
-const str = []const u8;
+pub const str = []const u8;
 
 const EscapeSequence = struct { key: Key, seq: str };
 
@@ -144,47 +141,12 @@ fn parse_esc_seq() !Key {
 pub fn readkey(ret: *u8) !Key {
     ret.* = try getch(1);
     return switch (ret.*) {
-        8 | 23 => Key.CtrlBackspace,
+        8, 23 => Key.CtrlBackspace,
         10 => Key.Enter,
         27 => try parse_esc_seq(),
         127 => Key.Backspace,
         else => Key.Byte,
     };
-}
-
-pub fn readkey2(ret: *u8) !Key {
-    var ch = try getch();
-
-    switch (ch) {
-        ESC => {},
-        '\n' => return Key.Enter,
-        BACKSPACE => return Key.Backspace,
-        else => {
-            ret.* = ch;
-            return Key.Byte;
-        },
-    }
-
-    var pos: usize = 0;
-    while (pos < 5) {
-        ch = try getch();
-
-        for (0..ESC_SEQ_LIST.len) |i| {
-            const seq = &ESC_SEQ_LIST[i];
-
-            if (pos == seq.len) {
-                continue;
-            }
-
-            if (ch == seq.value[pos] and seq.len - 1 == pos) {
-                return seq.key;
-            }
-        }
-
-        pos += 1;
-    }
-
-    return Key.Special;
 }
 
 pub fn getch(blocking: u8) !u8 {
