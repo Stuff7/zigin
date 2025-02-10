@@ -2,10 +2,12 @@ const std = @import("std");
 const utf8 = @import("utf8utils");
 const dbg = @import("dbgutils");
 
+const Allocator = std.mem.Allocator;
 const os = std.os.linux;
 
 pub fn readln(comptime prompt: []const u8, buf: *std.ArrayList(u8)) !void {
     var pos = buf.items.len;
+    var charpos = std.unicode.utf8CountCodepoints(buf.items) catch pos;
 
     const old = try setTermNonBlockingNonEcho(1);
     defer resetTerm(old) catch |err| {
@@ -13,8 +15,8 @@ pub fn readln(comptime prompt: []const u8, buf: *std.ArrayList(u8)) !void {
     };
 
     while (true) {
-        try promptln(prompt, buf.items, pos);
-        if (try Key.readToStringWithPosition(buf, &pos) == Key.Enter) {
+        try promptln(prompt, buf.items, charpos);
+        if (try Key.readToStringWithPosition(buf, &pos, &charpos) == Key.Enter) {
             break;
         }
     }
@@ -45,62 +47,102 @@ pub const Key = enum {
     CtrlArrowRight,
     CtrlArrowLeft,
 
-    fn readToStringWithPosition(buf: *std.ArrayList(u8), pos: *usize) !Key {
+    fn readToStringWithPosition(buf: *std.ArrayList(u8), pos: *usize, charpos: *usize) !Key {
         const key, const ch = try Key.readFromStdin();
 
         switch (key) {
             Key.Char => {
-                if (pos.* == buf.items.len) {
-                    try buf.append(ch);
-                } else {
-                    try buf.insert(pos.*, ch);
+                const charlen = try std.unicode.utf8ByteSequenceLength(ch);
+                var slice = [1]u8{ch} ** 4;
+                for (1..charlen) |i| {
+                    _, slice[i] = try Key.readFromStdin();
                 }
-                pos.* += 1;
+
+                if (pos.* == buf.items.len) {
+                    try buf.appendSlice(slice[0..charlen]);
+                } else {
+                    try buf.insertSlice(pos.*, slice[0..charlen]);
+                }
+
+                pos.* += charlen;
+                charpos.* += try charWidthFromSlice(slice[0..charlen]);
             },
             Key.Backspace => {
-                if (pos.* > 0) {
-                    pos.* -= 1;
-                    _ = buf.orderedRemove(pos.*);
+                if (moveBack(buf.items, pos.*)) |charlen| {
+                    pos.* -= charlen;
+                    charpos.* -= try charWidthFromSlice(buf.items[pos.* .. pos.* + charlen]);
+                    if (charlen == 1) {
+                        _ = buf.orderedRemove(pos.*);
+                    } else {
+                        buf.replaceRangeAssumeCapacity(pos.*, charlen, "");
+                    }
                 }
             },
             Key.ArrowLeft => {
-                pos.* -|= 1;
+                if (moveBack(buf.items, pos.*)) |charlen| {
+                    pos.* -= charlen;
+                    charpos.* -= try charWidthFromSlice(buf.items[pos.* .. pos.* + charlen]);
+                }
             },
             Key.ArrowRight => {
                 if (pos.* < buf.items.len) {
-                    pos.* += 1;
+                    var i: usize = pos.*;
+                    const charlen = ret: while (i < buf.items.len) : (i += 1) {
+                        if (std.unicode.utf8ByteSequenceLength(buf.items[i]) catch null) |c| {
+                            break :ret c;
+                        }
+                    } else {
+                        break :ret 1;
+                    };
+                    pos.* += charlen;
+                    charpos.* += try charWidthFromSlice(buf.items[pos.* - charlen .. pos.*]);
                 }
             },
             Key.CtrlBackspace => {
                 var idx = pos.*;
+
                 while (idx > 0 and utf8.isSpace(buf.items[idx - 1])) {
                     idx -= 1;
                 }
+
                 while (idx > 0 and !utf8.isSpace(buf.items[idx - 1])) {
                     idx -= 1;
                 }
+
+                const charlen = try visualStringLength(buf.items[idx..pos.*]);
                 buf.replaceRangeAssumeCapacity(idx, pos.* - idx, "");
                 pos.* = idx;
+                charpos.* -= charlen;
             },
             Key.CtrlArrowLeft => {
                 var idx = pos.*;
+
                 while (idx > 0 and utf8.isSpace(buf.items[idx - 1])) {
                     idx -= 1;
                 }
+
                 while (idx > 0 and !utf8.isSpace(buf.items[idx - 1])) {
                     idx -= 1;
                 }
+
+                const charlen = try visualStringLength(buf.items[idx..pos.*]);
                 pos.* = idx;
+                charpos.* -= charlen;
             },
             Key.CtrlArrowRight => {
                 var idx = pos.*;
+
                 while (idx < buf.items.len and utf8.isSpace(buf.items[idx])) {
                     idx += 1;
                 }
+
                 while (idx < buf.items.len and !utf8.isSpace(buf.items[idx])) {
                     idx += 1;
                 }
+
+                const charlen = try visualStringLength(buf.items[pos.*..idx]);
                 pos.* = idx;
+                charpos.* += charlen;
             },
             else => {},
         }
@@ -197,4 +239,47 @@ pub fn getch() !u8 {
     }
 
     return buf[0];
+}
+
+pub fn moveBack(buf: []const u8, pos: usize) ?usize {
+    var i = pos;
+    const charlen = ret: while (i != 0) : (i -= 1) {
+        if (std.unicode.utf8ByteSequenceLength(buf[i - 1]) catch null) |c| {
+            break :ret c;
+        }
+    } else {
+        break :ret 1;
+    };
+
+    return if (i > 0) charlen else null;
+}
+
+pub fn visualStringLength(slice: []const u8) !usize {
+    var it = (try std.unicode.Utf8View.init(slice)).iterator();
+    var charlen: usize = 0;
+
+    while (it.nextCodepoint()) |c| {
+        charlen += if (isWideChar(c)) 2 else 1;
+    }
+
+    return charlen;
+}
+
+pub fn charWidthFromSlice(slice: []u8) !usize {
+    const codepoint = try utf8.decodeCodepoint(slice);
+    return if (isWideChar(codepoint)) 2 else 1;
+}
+
+pub fn isWideChar(codepoint: u21) bool {
+    // Fullwidth and Wide ranges from Unicode East Asian Width table
+    return (codepoint >= 0x1100 and codepoint <= 0x115F) or // Hangul Jamo
+        (codepoint >= 0x2E80 and codepoint <= 0xA4CF) or // CJK Radicals, Kanji, etc.
+        (codepoint >= 0xAC00 and codepoint <= 0xD7A3) or // Hangul Syllables
+        (codepoint >= 0xF900 and codepoint <= 0xFAFF) or // CJK Compatibility Ideographs
+        (codepoint >= 0xFE10 and codepoint <= 0xFE19) or // Vertical Punctuation
+        (codepoint >= 0xFE30 and codepoint <= 0xFE6F) or // CJK Compatibility Forms
+        (codepoint >= 0xFF00 and codepoint <= 0xFF60) or // Fullwidth ASCII Variants
+        (codepoint >= 0xFFE0 and codepoint <= 0xFFE6) or // Fullwidth Symbols
+        (codepoint >= 0x1F300 and codepoint <= 0x1F64F) or // Emoji
+        (codepoint >= 0x1F900 and codepoint <= 0x1F9FF); // More Emoji
 }
