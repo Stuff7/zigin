@@ -1,51 +1,88 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+pub fn build(b: *std.Build) !void {
+    var info = BuildInfo{
+        .kind = .exe,
+        .target = b.standardTargetOptions(.{}),
+        .bin_name = "zigin-dbg",
+        .optimize = .Debug,
+        .src_path = "src/main.zig",
+        .module = b.addModule("zigin", .{ .root_source_file = b.path("src/lib.zig") }),
+        .dependencies = @constCast(&[_][]const u8{ "utf8utils", "dbgutils" }),
+    };
+    _ = addBuildOption(b, info, .{ .name = "debug", .desc = "Debug build" });
 
-    const exe = b.addExecutable(.{
-        .name = "zigin",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+    info.bin_name = "zigin";
+    info.optimize = .ReleaseFast;
+    _ = addBuildOption(b, info, .{ .name = "release", .desc = "Release build" });
 
-    exe.linkSystemLibrary("c");
-    b.installArtifact(exe);
+    info.bin_name = "zigin-s";
+    info.optimize = .ReleaseSmall;
+    _ = addBuildOption(b, info, .{ .name = "small", .desc = "Small build" });
 
-    const run_cmd = b.addRunArtifact(exe);
+    info.optimize = b.standardOptimizeOption(.{});
+    info.kind = .tests;
+    const tests = addBuildOption(b, info, .{ .name = "test", .desc = "Run tests" });
 
-    run_cmd.step.dependOn(b.getInstallStep());
+    info.kind = .exe;
+    const check = addBuildOption(b, info, null);
+    const check_step = b.step("check", "Build for LSP Diagnostics");
+    check_step.dependOn(&check.step);
+    check_step.dependOn(&tests.step);
+}
 
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
+const BuildInfo = struct {
+    kind: enum { tests, exe },
+    target: std.Build.ResolvedTarget,
+    bin_name: []const u8,
+    src_path: []const u8,
+    optimize: std.builtin.OptimizeMode,
+    module: *std.Build.Module,
+    dependencies: [][]const u8,
+};
+
+const StepInfo = struct {
+    name: []const u8,
+    desc: []const u8,
+};
+
+fn addBuildOption(
+    b: *std.Build,
+    info: BuildInfo,
+    step: ?StepInfo,
+) *std.Build.Step.Compile {
+    const bin = switch (info.kind) {
+        .exe => b.addExecutable(.{
+            .name = info.bin_name,
+            .root_source_file = b.path(info.src_path),
+            .target = info.target,
+            .optimize = info.optimize,
+        }),
+        .tests => b.addTest(.{
+            .root_source_file = b.path(info.src_path),
+            .target = info.target,
+            .optimize = info.optimize,
+        }),
+    };
+
+    bin.root_module.addImport("zigin", info.module);
+
+    for (info.dependencies) |name| {
+        const dep = b.dependency(name, .{ .target = info.target, .optimize = info.optimize });
+        bin.root_module.addImport(name, dep.module(name));
+        info.module.addImport(name, dep.module(name));
     }
 
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
+    if (step) |s| {
+        const install_step = b.step(s.name, s.desc);
+        switch (info.kind) {
+            .exe => install_step.dependOn(&b.addInstallArtifact(bin, .{}).step),
+            .tests => {
+                const exe_tests = b.addRunArtifact(bin);
+                install_step.dependOn(&exe_tests.step);
+            },
+        }
+    }
 
-    const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_exe_unit_tests.step);
-
-    // LSP Diagnostics
-    const exe_check = b.addExecutable(.{
-        .name = "zigin",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    exe_check.linkSystemLibrary("c");
-
-    const check = b.step("check", "Check if foo compiles");
-    check.dependOn(&exe_check.step);
+    return bin;
 }

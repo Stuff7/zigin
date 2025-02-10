@@ -1,0 +1,16 @@
+.{
+    .name = "zigin",
+    .version = "0.1.0",
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+
+    .dependencies = .{
+        .utf8utils = .{
+            .url = "git+https://github.com/Stuff7/utf8utils#82b45cd75fb17bee853bb31a5ee1a92baf75800b",
+            .hash = "122067c422c6d4f7667c5451d858f872adbbe8f663012396801e29273ebd439cb3f8",
+        },
+        .dbgutils = .{
+            .url = "git+https://github.com/Stuff7/dbgutils#4b92fc6098bb529aa90341543740f1da10b93aa6",
+            .hash = "1220d5bba7b90f4b9f4a63f18b603b25f077d2514c51a4f734582cf5a6d568db69cd",
+        },
+    },
+}

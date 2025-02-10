@@ -1,21 +1,23 @@
 const std = @import("std");
-const term = @import("term.zig");
+const zigin = @import("zigin");
+const utf8 = @import("utf8utils");
+const dbg = @import("dbgutils");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
 
-    var buf = std.ArrayList(u8).init(gpa.allocator());
-    defer buf.deinit();
+    var input = std.ArrayList(u8).init(gpa.allocator());
+    defer input.deinit();
 
     while (true) {
-        try term.readln("> ", &buf);
-        try term.stdout.print("Out: {s}\n", .{buf.items});
+        try zigin.readln(utf8.esc("1") ++ utf8.clr("154") ++ " > " ++ utf8.esc("0"), &input);
+        defer input.clearRetainingCapacity();
 
-        if (buf.items.len == 1 and buf.items[0] == 'q') {
+        dbg.print("Out: {s}", .{input.items});
+
+        if (std.mem.eql(u8, input.items, "q")) {
             break;
         }
-
-        buf.clearRetainingCapacity();
     }
 }
