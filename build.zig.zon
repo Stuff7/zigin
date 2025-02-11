@@ -5,8 +5,8 @@
 
     .dependencies = .{
         .utf8utils = .{
-            .url = "git+https://github.com/Stuff7/utf8utils#82b45cd75fb17bee853bb31a5ee1a92baf75800b",
-            .hash = "122067c422c6d4f7667c5451d858f872adbbe8f663012396801e29273ebd439cb3f8",
+            .url = "git+https://github.com/Stuff7/utf8utils#94fcd2ec3087ab6ea9ff608a67d0fb101aa9f8e9",
+            .hash = "1220e67a0cf100b4f4d601a8c44d65e72f3ec4be1f72bcdd2a97b3e3322eeb587366",
         },
         .dbgutils = .{
             .url = "git+https://github.com/Stuff7/dbgutils#4b92fc6098bb529aa90341543740f1da10b93aa6",

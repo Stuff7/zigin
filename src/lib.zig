@@ -259,7 +259,7 @@ pub fn visualStringLength(slice: []const u8) !usize {
     var charlen: usize = 0;
 
     while (it.nextCodepoint()) |c| {
-        charlen += if (isWideChar(c)) 2 else 1;
+        charlen += if (utf8.isWideChar(c)) 2 else 1;
     }
 
     return charlen;
@@ -267,19 +267,5 @@ pub fn visualStringLength(slice: []const u8) !usize {
 
 pub fn charWidthFromSlice(slice: []u8) !usize {
     const codepoint = try utf8.decodeCodepoint(slice);
-    return if (isWideChar(codepoint)) 2 else 1;
-}
-
-pub fn isWideChar(codepoint: u21) bool {
-    // Fullwidth and Wide ranges from Unicode East Asian Width table
-    return (codepoint >= 0x1100 and codepoint <= 0x115F) or // Hangul Jamo
-        (codepoint >= 0x2E80 and codepoint <= 0xA4CF) or // CJK Radicals, Kanji, etc.
-        (codepoint >= 0xAC00 and codepoint <= 0xD7A3) or // Hangul Syllables
-        (codepoint >= 0xF900 and codepoint <= 0xFAFF) or // CJK Compatibility Ideographs
-        (codepoint >= 0xFE10 and codepoint <= 0xFE19) or // Vertical Punctuation
-        (codepoint >= 0xFE30 and codepoint <= 0xFE6F) or // CJK Compatibility Forms
-        (codepoint >= 0xFF00 and codepoint <= 0xFF60) or // Fullwidth ASCII Variants
-        (codepoint >= 0xFFE0 and codepoint <= 0xFFE6) or // Fullwidth Symbols
-        (codepoint >= 0x1F300 and codepoint <= 0x1F64F) or // Emoji
-        (codepoint >= 0x1F900 and codepoint <= 0x1F9FF); // More Emoji
+    return if (utf8.isWideChar(codepoint)) 2 else 1;
 }
