@@ -6,17 +6,21 @@ const dbg = @import("dbgutils");
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
-    var input = std.ArrayList(u8).init(gpa.allocator());
-    defer input.deinit();
+    var history = std.ArrayList(std.ArrayList(u8)).init(allocator);
+    defer {
+        for (history.items) |s| {
+            s.deinit();
+        }
+        history.deinit();
+    }
 
     while (true) {
-        try zigin.readln(utf8.esc("1") ++ utf8.clr("154") ++ " > " ++ utf8.esc("0"), &input);
-        defer input.clearRetainingCapacity();
+        const input = try zigin.pushln(allocator, utf8.esc("1") ++ utf8.clr("154") ++ " > " ++ utf8.esc("0"), &history);
+        dbg.print("Out: {s}", .{input});
 
-        dbg.print("Out: {s}", .{input.items});
-
-        if (std.mem.eql(u8, input.items, "q")) {
+        if (std.mem.eql(u8, input, "q")) {
             break;
         }
     }
