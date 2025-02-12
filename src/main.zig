@@ -1,7 +1,7 @@
 const std = @import("std");
 const zigin = @import("zigin");
-const utf8 = @import("utf8utils");
-const dbg = @import("dbgutils");
+const utf8 = @import("utf8");
+const dbg = @import("dbg");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;

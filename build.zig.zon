@@ -4,13 +4,13 @@
     .paths = .{ "build.zig", "build.zig.zon", "src" },
 
     .dependencies = .{
-        .utf8utils = .{
-            .url = "git+https://github.com/Stuff7/utf8utils#94fcd2ec3087ab6ea9ff608a67d0fb101aa9f8e9",
-            .hash = "1220e67a0cf100b4f4d601a8c44d65e72f3ec4be1f72bcdd2a97b3e3322eeb587366",
+        .dbg = .{
+            .url = "git+https://github.com/Stuff7/dbg#82d7e127a50a186201adedce6931f52302a4c428",
+            .hash = "122090583ee1f82685dd8035c94278a79a13ee8d19ef54e245b3d416a5074de82638",
         },
-        .dbgutils = .{
-            .url = "git+https://github.com/Stuff7/dbgutils#4b92fc6098bb529aa90341543740f1da10b93aa6",
-            .hash = "1220d5bba7b90f4b9f4a63f18b603b25f077d2514c51a4f734582cf5a6d568db69cd",
+        .utf8 = .{
+            .url = "git+https://github.com/Stuff7/utf8#d4560739f45587a1ce6c2d2c4e05700d48833db7",
+            .hash = "12201ad48341eb563f22d31a71a39fbaeafd43717a1c9f8cf10d6af2e235e30d3238",
         },
     },
 }
