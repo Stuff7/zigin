@@ -1,6 +1,8 @@
 const std = @import("std");
-const utf8 = @import("utf8");
-const dbg = @import("dbg");
+const zut = @import("zut");
+
+const utf8 = zut.utf8;
+const dbg = zut.dbg;
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;

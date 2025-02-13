@@ -4,13 +4,9 @@
     .paths = .{ "build.zig", "build.zig.zon", "src" },
 
     .dependencies = .{
-        .dbg = .{
-            .url = "git+https://github.com/Stuff7/dbg#82d7e127a50a186201adedce6931f52302a4c428",
-            .hash = "122090583ee1f82685dd8035c94278a79a13ee8d19ef54e245b3d416a5074de82638",
-        },
-        .utf8 = .{
-            .url = "git+https://github.com/Stuff7/utf8#d4560739f45587a1ce6c2d2c4e05700d48833db7",
-            .hash = "12201ad48341eb563f22d31a71a39fbaeafd43717a1c9f8cf10d6af2e235e30d3238",
+        .zut = .{
+            .url = "git+https://github.com/Stuff7/zut#4828604fff6be8d1586ed642d6ce10571afc9f96",
+            .hash = "12201e78c948bae58fe25eade36a5eb981014f3a1f6116d75d32e1708dbf150f464f",
         },
     },
 }
