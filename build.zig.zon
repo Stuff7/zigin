@@ -5,8 +5,8 @@
 
     .dependencies = .{
         .zut = .{
-            .url = "git+https://github.com/Stuff7/zut#4828604fff6be8d1586ed642d6ce10571afc9f96",
-            .hash = "12201e78c948bae58fe25eade36a5eb981014f3a1f6116d75d32e1708dbf150f464f",
+            .url = "git+https://github.com/Stuff7/zut#762663e8740938c6a8801568387c5e333bdcd374",
+            .hash = "1220741f57e051b4ec395af23aee786933b628eba7c360426f330ef99c60dce576f1",
         },
     },
 }

@@ -4,30 +4,21 @@ pub fn build(b: *std.Build) !void {
     var info = BuildInfo{
         .kind = .exe,
         .target = b.standardTargetOptions(.{}),
-        .bin_name = "zigin-dbg",
-        .optimize = .Debug,
+        .bin_name = "zigin",
+        .optimize = b.standardOptimizeOption(.{}),
         .src_path = "src/main.zig",
         .module = b.addModule("zigin", .{ .root_source_file = b.path("src/zigin.zig") }),
         .dependencies = @constCast(&[_][]const u8{"zut"}),
     };
-    _ = addBuildOption(b, info, .{ .name = "debug", .desc = "Debug build" });
+    const exe = addBuildOption(b, info, null);
+    b.installArtifact(exe);
 
-    info.bin_name = "zigin";
-    info.optimize = .ReleaseFast;
-    _ = addBuildOption(b, info, .{ .name = "release", .desc = "Release build" });
-
-    info.bin_name = "zigin-s";
-    info.optimize = .ReleaseSmall;
-    _ = addBuildOption(b, info, .{ .name = "small", .desc = "Small build" });
-
-    info.optimize = b.standardOptimizeOption(.{});
-    info.kind = .tests;
-    const tests = addBuildOption(b, info, .{ .name = "test", .desc = "Run tests" });
-
-    info.kind = .exe;
     const check = addBuildOption(b, info, null);
     const check_step = b.step("check", "Build for LSP Diagnostics");
     check_step.dependOn(&check.step);
+
+    info.kind = .tests;
+    const tests = addBuildOption(b, info, .{ .name = "test", .desc = "Run tests" });
     check_step.dependOn(&tests.step);
 }
 
@@ -51,9 +42,17 @@ fn addBuildOption(
     info: BuildInfo,
     step: ?StepInfo,
 ) *std.Build.Step.Compile {
+    var name_buf: [256]u8 = undefined;
+    const bin_postfix = switch (info.optimize) {
+        .Debug => "-dbg",
+        .ReleaseFast => "",
+        .ReleaseSafe => "-s",
+        .ReleaseSmall => "-sm",
+    };
+
     const bin = switch (info.kind) {
         .exe => b.addExecutable(.{
-            .name = info.bin_name,
+            .name = std.fmt.bufPrint(@constCast(&name_buf), "{s}{s}", .{ info.bin_name, bin_postfix }) catch unreachable,
             .root_source_file = b.path(info.src_path),
             .target = info.target,
             .optimize = info.optimize,
@@ -65,13 +64,13 @@ fn addBuildOption(
         }),
     };
 
-    bin.root_module.addImport("zigin", info.module);
-
     for (info.dependencies) |name| {
         const dep = b.dependency(name, .{ .target = info.target, .optimize = info.optimize });
         bin.root_module.addImport(name, dep.module(name));
         info.module.addImport(name, dep.module(name));
     }
+
+    bin.root_module.addImport("zigin", info.module);
 
     if (step) |s| {
         const install_step = b.step(s.name, s.desc);
