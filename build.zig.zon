@@ -1,12 +1,17 @@
 .{
-    .name = "zigin",
-    .version = "0.1.0",
-    .paths = .{ "build.zig", "build.zig.zon", "src" },
-
+    .name = .prompt,
+    .version = "0.2.0",
+    .fingerprint = 0x62ef6c38f98fcfec,
+    .minimum_zig_version = "0.15.0-dev.1283+1fcaf90dd",
     .dependencies = .{
         .zut = .{
-            .url = "git+https://github.com/Stuff7/zut#762663e8740938c6a8801568387c5e333bdcd374",
-            .hash = "1220741f57e051b4ec395af23aee786933b628eba7c360426f330ef99c60dce576f1",
+            .url = "git+https://github.com/Stuff7/zut#1f13ee45df1f66c4713903181d69dff35a74e53b",
+            .hash = "zut-1.0.0-5cLvvnI7AACjOMxi4Hbaoli58gVp1yV3XMqzY_t6i788",
         },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
     },
 }

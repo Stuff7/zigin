@@ -1,87 +1,67 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) !void {
-    var info = BuildInfo{
-        .kind = .exe,
-        .target = b.standardTargetOptions(.{}),
-        .bin_name = "zigin",
-        .optimize = b.standardOptimizeOption(.{}),
-        .src_path = "src/main.zig",
-        .module = b.addModule("zigin", .{ .root_source_file = b.path("src/zigin.zig") }),
-        .dependencies = @constCast(&[_][]const u8{"zut"}),
-    };
-    const exe = addBuildOption(b, info, null);
-    b.installArtifact(exe);
+const Module = std.Build.Module;
+const ResolvedTarget = std.Build.ResolvedTarget;
+const OptimizeMode = std.builtin.OptimizeMode;
 
-    const check = addBuildOption(b, info, null);
-    const check_step = b.step("check", "Build for LSP Diagnostics");
-    check_step.dependOn(&check.step);
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
 
-    info.kind = .tests;
-    const tests = addBuildOption(b, info, .{ .name = "test", .desc = "Run tests" });
-    check_step.dependOn(&tests.step);
-}
-
-const BuildInfo = struct {
-    kind: enum { tests, exe },
-    target: std.Build.ResolvedTarget,
-    bin_name: []const u8,
-    src_path: []const u8,
-    optimize: std.builtin.OptimizeMode,
-    module: *std.Build.Module,
-    dependencies: [][]const u8,
-};
-
-const StepInfo = struct {
-    name: []const u8,
-    desc: []const u8,
-};
-
-fn addBuildOption(
-    b: *std.Build,
-    info: BuildInfo,
-    step: ?StepInfo,
-) *std.Build.Step.Compile {
-    var name_buf: [256]u8 = undefined;
-    const bin_postfix = switch (info.optimize) {
+    const NAME = "prompt";
+    const suffix = switch (optimize) {
         .Debug => "-dbg",
         .ReleaseFast => "",
         .ReleaseSafe => "-s",
         .ReleaseSmall => "-sm",
     };
 
-    const bin = switch (info.kind) {
-        .exe => b.addExecutable(.{
-            .name = std.fmt.bufPrint(@constCast(&name_buf), "{s}{s}", .{ info.bin_name, bin_postfix }) catch unreachable,
-            .root_source_file = b.path(info.src_path),
-            .target = info.target,
-            .optimize = info.optimize,
-        }),
-        .tests => b.addTest(.{
-            .root_source_file = b.path(info.src_path),
-            .target = info.target,
-            .optimize = info.optimize,
-        }),
-    };
+    var name_buf: [NAME.len + 4]u8 = undefined;
+    const bin_name = std.fmt.bufPrint(@constCast(&name_buf), "{s}{s}", .{ NAME, suffix }) catch unreachable;
 
-    for (info.dependencies) |name| {
-        const dep = b.dependency(name, .{ .target = info.target, .optimize = info.optimize });
-        bin.root_module.addImport(name, dep.module(name));
-        info.module.addImport(name, dep.module(name));
+    const deps = .{"zut"};
+
+    const lib_module = b.addModule(NAME, .{ .root_source_file = b.path("src/" ++ NAME ++ ".zig") });
+    addDependencies(b, lib_module, target, optimize, deps);
+
+    const main_module = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    addDependencies(b, main_module, target, optimize, deps);
+    main_module.addImport(NAME, lib_module);
+
+    const tests = addBuild(b, main_module, bin_name, .tests);
+    const run_tests = b.addRunArtifact(tests);
+    b.step("test", "Run tests").dependOn(&run_tests.step);
+
+    const exe = addBuild(b, main_module, bin_name, .exe);
+    b.installArtifact(exe);
+
+    const check = addBuild(b, main_module, bin_name, .exe);
+    const check_step = b.step("check", "Build for LSP Diagnostics");
+    check_step.dependOn(&check.step);
+    check_step.dependOn(&b.addTest(.{ .root_module = main_module }).step);
+}
+
+fn addBuild(
+    b: *std.Build,
+    main_module: *std.Build.Module,
+    bin_name: []const u8,
+    kind: enum { tests, exe },
+) *std.Build.Step.Compile {
+    const exe = if (kind == .tests)
+        b.addTest(.{ .name = bin_name, .root_module = main_module })
+    else
+        b.addExecutable(.{ .name = bin_name, .root_module = main_module });
+
+    return exe;
+}
+
+fn addDependencies(b: *std.Build, module: *Module, target: ResolvedTarget, optimize: OptimizeMode, deps: anytype) void {
+    inline for (deps) |name| {
+        const dep = b.dependency(name, .{ .target = target, .optimize = optimize });
+        module.addImport(name, dep.module(name));
     }
-
-    bin.root_module.addImport("zigin", info.module);
-
-    if (step) |s| {
-        const install_step = b.step(s.name, s.desc);
-        switch (info.kind) {
-            .exe => install_step.dependOn(&b.addInstallArtifact(bin, .{}).step),
-            .tests => {
-                const exe_tests = b.addRunArtifact(bin);
-                install_step.dependOn(&exe_tests.step);
-            },
-        }
-    }
-
-    return bin;
 }
