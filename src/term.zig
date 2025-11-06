@@ -5,13 +5,14 @@ const utf8 = zut.utf8;
 const log = std.log;
 
 const ArrayList = std.ArrayList;
+const Reader = std.Io.Reader;
+const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 
-pub const stdin = std.fs.File.stdin();
+stdout: *Writer,
+stdin: *Reader,
 
-var stdout_buf: [256]u8 = undefined;
-var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
-pub const stdout = &stdout_writer.interface;
+const Term = @This();
 
 pub const Key = enum {
     na,
@@ -26,6 +27,8 @@ pub const Key = enum {
     ctrl_backspace,
     ctrl_arrow_right,
     ctrl_arrow_left,
+    ctrl_g,
+    ctrl_r,
 
     /// Reads a single utf-8 character of user input, allowing basic editing operations with a cursor.
     ///
@@ -34,15 +37,15 @@ pub const Key = enum {
     /// This function blocks until a key event is detected and returns the corresponding `Key` enum
     /// representing the user input. The function also updates the provided buffer and cursor
     /// position based on the input.
-    pub fn readToStringWithPosition(allocator: Allocator, buf: *ArrayList(u8), pos: *usize, cursor_pos: *usize) !Key {
-        const key, const ch = try Key.readFromStdin();
+    pub fn readToStringWithPosition(term: Term, allocator: Allocator, buf: *ArrayList(u8), pos: *usize, cursor_pos: *usize) !Key {
+        const key, const ch = try Key.readFromStdin(term);
 
         switch (key) {
             Key.char => {
                 const charlen = try std.unicode.utf8ByteSequenceLength(ch);
                 var slice = [1]u8{ch} ** 4;
                 for (1..charlen) |i| {
-                    _, slice[i] = try Key.readFromStdin();
+                    _, slice[i] = try Key.readFromStdin(term);
                 }
 
                 if (pos.* == buf.items.len) {
@@ -137,7 +140,7 @@ pub const Key = enum {
         return key;
     }
 
-    pub fn fromEscapeSequence() !Key {
+    pub fn fromEscapeSequence(term: Term) !Key {
         const sequences = [_]struct { key: Key, seq: []const u8 }{
             .{ .key = .arrow_up, .seq = "[A" },
             .{ .key = .arrow_down, .seq = "[B" },
@@ -151,7 +154,7 @@ pub const Key = enum {
         var pos: usize = 0;
 
         while (pos < sequences.len + 1) {
-            ch = try getch();
+            ch = try term.getch();
             for (sequences) |esc| {
                 if (pos >= esc.seq.len) {
                     continue;
@@ -167,15 +170,17 @@ pub const Key = enum {
         return .na;
     }
 
-    pub fn readFromStdin() !struct { Key, u8 } {
-        const ch = try getch();
+    pub fn readFromStdin(term: Term) !struct { Key, u8 } {
+        const ch = try term.getch();
 
         const k = switch (ch) {
-            8, 23 => .ctrl_backspace,
-            9 => .tab,
-            10 => .enter,
-            27 => try Key.fromEscapeSequence(),
-            127 => .backspace,
+            0x08, 0x17 => .ctrl_backspace,
+            0x09 => .tab,
+            0x0A => .enter,
+            0x12 => .ctrl_r,
+            0x07 => .ctrl_g,
+            0x1B => try Key.fromEscapeSequence(term),
+            0x7F => .backspace,
             else => if (ch > 31) return .{ .char, ch } else .na,
         };
 
@@ -183,15 +188,70 @@ pub const Key = enum {
     }
 };
 
-pub fn promptln(comptime prompt: []const u8, input: []const u8, cursor: usize) !void {
-    try stdout.print("\x1b[2K\r{s}{s}\r", .{ prompt, input });
-    const pos = cursor + try utf8.charLength(prompt);
+pub inline fn isString(comptime T: type) bool {
+    const info = @typeInfo(T);
 
-    if (pos > 0) {
-        try stdout.print("\x1b[{}C", .{pos});
+    // Check if it's a pointer to an array of u8
+    if (info == .pointer) {
+        const ptr_info = info.pointer;
+
+        // Check for []const u8 or []u8 (slices)
+        if (ptr_info.size == .slice) {
+            return ptr_info.child == u8;
+        }
+
+        // Check for *const [N]u8 or *[N]u8 (pointer to array)
+        if (ptr_info.size == .one) {
+            const child_info = @typeInfo(ptr_info.child);
+            if (child_info == .array) {
+                return child_info.array.child == u8;
+            }
+        }
     }
 
-    try stdout.flush();
+    // Check if it's an array of u8
+    if (info == .array) {
+        return info.array.child == u8;
+    }
+
+    return false;
+}
+
+/// The first argument in args must be the input
+pub fn promptln(self: @This(), prompt: anytype, input: []const u8, cursor: usize) !void {
+    const args = blk: {
+        const P = @TypeOf(prompt);
+
+        if (isString(P)) break :blk .{ prompt, .input };
+
+        if (!@typeInfo(P).@"struct".is_tuple) {
+            @compileError(
+                \\`prompt` must be either a string or a tuple like `.{"Your prompt ", .input, " more prompts"}`
+            );
+        }
+
+        break :blk prompt;
+    };
+
+    var input_found = false;
+    var pos = cursor;
+    try self.stdout.writeAll("\x1b[2K\r");
+    inline for (args) |arg| {
+        if (isString(@TypeOf(arg))) {
+            try self.stdout.writeAll(arg);
+            if (!input_found) pos += try utf8.charLength(arg);
+        } else if (arg == .input) {
+            try self.stdout.writeAll(input);
+            input_found = true;
+        }
+    }
+    try self.stdout.writeByte('\r');
+
+    if (pos > 0) {
+        try self.stdout.print("\x1b[{}C", .{pos});
+    }
+
+    try self.stdout.flush();
 }
 
 pub fn setTermNonBlockingNonEcho(min_read: u8) !os.termios {
@@ -223,9 +283,9 @@ pub fn resetTerm(t: os.termios) !void {
     }
 }
 
-pub fn getch() !u8 {
+pub fn getch(self: @This()) !u8 {
     var buf = [1]u8{0};
-    const bytes_read = try stdin.read(&buf);
+    const bytes_read = try self.stdin.readSliceShort(&buf);
     if (bytes_read < 0) {
         log.err("errno: {}", .{os._errno()});
         return error.GetchRead;

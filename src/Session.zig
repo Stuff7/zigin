@@ -1,16 +1,21 @@
 const std = @import("std");
-const term = @import("term.zig");
 const log = std.log;
 
+const Term = @import("term.zig");
 const ArrayList = std.ArrayList;
+const Reader = std.Io.Reader;
+const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 const History = ArrayList(ArrayList(u8));
-const Key = term.Key;
+const Key = Term.Key;
 
-const stdout = term.stdout;
+const readln = @import("prompt.zig").readln;
 
 allocator: Allocator,
 history: History = .empty,
+searching: bool = false,
+stdout: *Writer,
+stdin: *Reader,
 
 pub fn deinit(self: *@This()) void {
     for (self.history.items) |*ln| ln.deinit(self.allocator);
@@ -44,22 +49,52 @@ pub fn capture(self: *@This(), gpa: Allocator, comptime prompt: []const u8) ![]c
     var history_pos = history.items.len;
     const last_history_idx: isize = @as(isize, @intCast(history_pos)) - 1;
 
-    const old = try term.setTermNonBlockingNonEcho(1);
-    defer term.resetTerm(old) catch |err| {
+    const term = Term{ .stdout = self.stdout, .stdin = self.stdin };
+    const old = try Term.setTermNonBlockingNonEcho(1);
+    defer Term.resetTerm(old) catch |err| {
         log.err("Could not reset terminal state: {}", err);
     };
 
+    var search_buf = ArrayList(u8).empty;
+    defer search_buf.deinit(gpa);
+    var match_idx: usize = history.items.len -| 1;
+
     while (true) {
-        try term.promptln(prompt, buf.items, cursor_pos);
-        const key = try Key.readToStringWithPosition(new_buf_allocator, buf, &pos, &cursor_pos);
+        if (self.searching) {
+            try term.promptln(.{
+                "(reverse-i-search)`",
+                .input,
+                "': ",
+                if (match_idx < history.items.len) history.items[match_idx].items else "",
+            }, search_buf.items, cursor_pos);
+            if (self.search(search_buf.items, match_idx)) |idx| match_idx = idx;
+        } else {
+            try term.promptln(prompt, buf.items, cursor_pos);
+            match_idx = history.items.len;
+        }
+
+        const key = try Key.readToStringWithPosition(term, new_buf_allocator, if (self.searching) &search_buf else buf, &pos, &cursor_pos);
 
         switch (key) {
             .enter => break,
             .arrow_up => history_pos = @max(history.items.len -| local_history_capacity, history_pos -| 1),
-            .arrow_down => {
-                if (history_pos < history.items.len) {
-                    history_pos += 1;
+            .ctrl_r => {
+                if (self.searching) {
+                    if (self.search(search_buf.items, match_idx + 1)) |idx| match_idx = idx;
                 }
+
+                self.searching = true;
+                continue;
+            },
+            .ctrl_g => {
+                self.searching = false;
+                search_buf.clearRetainingCapacity();
+                cursor_pos = 0;
+                pos = 0;
+                continue;
+            },
+            .arrow_down => {
+                if (history_pos < history.items.len) history_pos += 1;
             },
             else => continue,
         }
@@ -79,11 +114,11 @@ pub fn capture(self: *@This(), gpa: Allocator, comptime prompt: []const u8) ![]c
 
         buf = item;
         pos = item.items.len;
-        cursor_pos = term.visualStringLength(item.items) catch pos;
+        cursor_pos = Term.visualStringLength(item.items) catch pos;
     }
 
-    try stdout.writeByte('\n');
-    try stdout.flush();
+    try self.stdout.writeByte('\n');
+    try self.stdout.flush();
     if (buf.items.len == 0) {
         return "";
     }
@@ -96,7 +131,7 @@ pub fn capture(self: *@This(), gpa: Allocator, comptime prompt: []const u8) ![]c
     return new_buf.items;
 }
 
-fn search(self: @This(), query: []const u8, start_idx: usize) !void {
+fn search(self: @This(), query: []const u8, start_idx: ?usize) ?usize {
     if (query.len == 0) return null;
 
     const search_start = if (start_idx) |idx|
