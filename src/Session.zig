@@ -1,13 +1,13 @@
 const std = @import("std");
+const term = @import("term.zig");
 const log = std.log;
 
-const Term = @import("term.zig");
 const ArrayList = std.ArrayList;
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 const History = ArrayList(ArrayList(u8));
-const Key = Term.Key;
+const Key = term.Key;
 
 const readln = @import("prompt.zig").readln;
 
@@ -49,11 +49,8 @@ pub fn capture(self: *@This(), gpa: Allocator, comptime prompt: []const u8) ![]c
     var history_pos = history.items.len;
     const last_history_idx: isize = @as(isize, @intCast(history_pos)) - 1;
 
-    const term = Term{ .stdout = self.stdout, .stdin = self.stdin };
-    const old = try Term.setTermNonBlockingNonEcho(1);
-    defer Term.resetTerm(old) catch |err| {
-        log.err("Could not reset terminal state: {}", err);
-    };
+    const old = try term.setTermNonBlockingNonEcho(1);
+    defer term.resetTerm(old) catch {};
 
     var search_buf = ArrayList(u8).empty;
     defer search_buf.deinit(gpa);
@@ -61,7 +58,7 @@ pub fn capture(self: *@This(), gpa: Allocator, comptime prompt: []const u8) ![]c
 
     while (true) {
         if (self.searching) {
-            try term.promptln(.{
+            try term.promptln(self.stdout, .{
                 "(reverse-i-search)`",
                 .input,
                 "': ",
@@ -69,11 +66,17 @@ pub fn capture(self: *@This(), gpa: Allocator, comptime prompt: []const u8) ![]c
             }, search_buf.items, cursor_pos);
             if (self.search(search_buf.items, match_idx)) |idx| match_idx = idx;
         } else {
-            try term.promptln(prompt, buf.items, cursor_pos);
+            try term.promptln(self.stdout, prompt, buf.items, cursor_pos);
             match_idx = history.items.len;
         }
 
-        const key = try Key.readToStringWithPosition(term, new_buf_allocator, if (self.searching) &search_buf else buf, &pos, &cursor_pos);
+        const key = try Key.readToStringWithPosition(
+            self.stdin,
+            new_buf_allocator,
+            if (self.searching) &search_buf else buf,
+            &pos,
+            &cursor_pos,
+        );
 
         switch (key) {
             .enter => break,
@@ -114,7 +117,7 @@ pub fn capture(self: *@This(), gpa: Allocator, comptime prompt: []const u8) ![]c
 
         buf = item;
         pos = item.items.len;
-        cursor_pos = Term.visualStringLength(item.items) catch pos;
+        cursor_pos = term.visualStringLength(item.items) catch pos;
     }
 
     try self.stdout.writeByte('\n');

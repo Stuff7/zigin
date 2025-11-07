@@ -9,11 +9,6 @@ const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 
-stdout: *Writer,
-stdin: *Reader,
-
-const Term = @This();
-
 pub const Key = enum {
     na,
     char,
@@ -37,15 +32,15 @@ pub const Key = enum {
     /// This function blocks until a key event is detected and returns the corresponding `Key` enum
     /// representing the user input. The function also updates the provided buffer and cursor
     /// position based on the input.
-    pub fn readToStringWithPosition(term: Term, allocator: Allocator, buf: *ArrayList(u8), pos: *usize, cursor_pos: *usize) !Key {
-        const key, const ch = try Key.readFromStdin(term);
+    pub fn readToStringWithPosition(stdin: *Reader, allocator: Allocator, buf: *ArrayList(u8), pos: *usize, cursor_pos: *usize) !Key {
+        const key, const ch = try Key.readFromStdin(stdin);
 
         switch (key) {
             Key.char => {
                 const charlen = try std.unicode.utf8ByteSequenceLength(ch);
                 var slice = [1]u8{ch} ** 4;
                 for (1..charlen) |i| {
-                    _, slice[i] = try Key.readFromStdin(term);
+                    _, slice[i] = try Key.readFromStdin(stdin);
                 }
 
                 if (pos.* == buf.items.len) {
@@ -140,7 +135,7 @@ pub const Key = enum {
         return key;
     }
 
-    pub fn fromEscapeSequence(term: Term) !Key {
+    pub fn fromEscapeSequence(stdin: *Reader) !Key {
         const sequences = [_]struct { key: Key, seq: []const u8 }{
             .{ .key = .arrow_up, .seq = "[A" },
             .{ .key = .arrow_down, .seq = "[B" },
@@ -154,7 +149,8 @@ pub const Key = enum {
         var pos: usize = 0;
 
         while (pos < sequences.len + 1) {
-            ch = try term.getch();
+            ch = try stdin.takeByte();
+
             for (sequences) |esc| {
                 if (pos >= esc.seq.len) {
                     continue;
@@ -170,8 +166,8 @@ pub const Key = enum {
         return .na;
     }
 
-    pub fn readFromStdin(term: Term) !struct { Key, u8 } {
-        const ch = try term.getch();
+    pub fn readFromStdin(stdin: *Reader) !struct { Key, u8 } {
+        const ch = try stdin.takeByte();
 
         const k = switch (ch) {
             0x08, 0x17 => .ctrl_backspace,
@@ -179,7 +175,7 @@ pub const Key = enum {
             0x0A => .enter,
             0x12 => .ctrl_r,
             0x07 => .ctrl_g,
-            0x1B => try Key.fromEscapeSequence(term),
+            0x1B => try Key.fromEscapeSequence(stdin),
             0x7F => .backspace,
             else => if (ch > 31) return .{ .char, ch } else .na,
         };
@@ -191,16 +187,15 @@ pub const Key = enum {
 pub inline fn isString(comptime T: type) bool {
     const info = @typeInfo(T);
 
-    // Check if it's a pointer to an array of u8
     if (info == .pointer) {
         const ptr_info = info.pointer;
 
-        // Check for []const u8 or []u8 (slices)
+        // []const u8 or []u8 (slices)
         if (ptr_info.size == .slice) {
             return ptr_info.child == u8;
         }
 
-        // Check for *const [N]u8 or *[N]u8 (pointer to array)
+        // *const [N]u8 or *[N]u8 (pointer to array)
         if (ptr_info.size == .one) {
             const child_info = @typeInfo(ptr_info.child);
             if (child_info == .array) {
@@ -209,7 +204,6 @@ pub inline fn isString(comptime T: type) bool {
         }
     }
 
-    // Check if it's an array of u8
     if (info == .array) {
         return info.array.child == u8;
     }
@@ -217,8 +211,7 @@ pub inline fn isString(comptime T: type) bool {
     return false;
 }
 
-/// The first argument in args must be the input
-pub fn promptln(self: @This(), prompt: anytype, input: []const u8, cursor: usize) !void {
+pub fn promptln(stdout: *Writer, prompt: anytype, input: []const u8, cursor: usize) !void {
     const args = blk: {
         const P = @TypeOf(prompt);
 
@@ -235,23 +228,23 @@ pub fn promptln(self: @This(), prompt: anytype, input: []const u8, cursor: usize
 
     var input_found = false;
     var pos = cursor;
-    try self.stdout.writeAll("\x1b[2K\r");
+    try stdout.writeAll("\x1b[2K\r");
     inline for (args) |arg| {
         if (isString(@TypeOf(arg))) {
-            try self.stdout.writeAll(arg);
+            try stdout.writeAll(arg);
             if (!input_found) pos += try utf8.charLength(arg);
         } else if (arg == .input) {
-            try self.stdout.writeAll(input);
+            try stdout.writeAll(input);
             input_found = true;
         }
     }
-    try self.stdout.writeByte('\r');
+    try stdout.writeByte('\r');
 
     if (pos > 0) {
-        try self.stdout.print("\x1b[{}C", .{pos});
+        try stdout.print("\x1b[{}C", .{pos});
     }
 
-    try self.stdout.flush();
+    try stdout.flush();
 }
 
 pub fn setTermNonBlockingNonEcho(min_read: u8) !os.termios {
@@ -283,35 +276,6 @@ pub fn resetTerm(t: os.termios) !void {
     }
 }
 
-pub fn getch(self: @This()) !u8 {
-    var buf = [1]u8{0};
-    const bytes_read = try self.stdin.readSliceShort(&buf);
-    if (bytes_read < 0) {
-        log.err("errno: {}", .{os._errno()});
-        return error.GetchRead;
-    }
-    if (bytes_read == 0) {
-        return error.GetchBlock;
-    }
-
-    return buf[0];
-}
-
-/// Given a **utf-8** string it returns the **byte position** 1 character to the left relative to `pos`
-/// or **null** if there's no more characters to the left
-pub fn moveBack(str: []const u8, pos: usize) ?usize {
-    var i = pos;
-    const charlen = ret: while (i != 0) : (i -= 1) {
-        if (std.unicode.utf8ByteSequenceLength(str[i - 1]) catch null) |c| {
-            break :ret c;
-        }
-    } else {
-        break :ret 1;
-    };
-
-    return if (i > 0) charlen else null;
-}
-
 /// Given a **utf-8** string it returns it's *visual* length based on the **Unicode East Asian Width** of each character
 pub fn visualStringLength(str: []const u8) !usize {
     var it = (try std.unicode.Utf8View.init(str)).iterator();
@@ -324,8 +288,23 @@ pub fn visualStringLength(str: []const u8) !usize {
     return charlen;
 }
 
+/// Given a **utf-8** string it returns the **byte position** 1 character to the left relative to `pos`
+/// or **null** if there's no more characters to the left
+fn moveBack(str: []const u8, pos: usize) ?usize {
+    var i = pos;
+    const charlen = ret: while (i != 0) : (i -= 1) {
+        if (std.unicode.utf8ByteSequenceLength(str[i - 1]) catch null) |c| {
+            break :ret c;
+        }
+    } else {
+        break :ret 1;
+    };
+
+    return if (i > 0) charlen else null;
+}
+
 /// Given a **utf-8** character slice it returns it's *visual* length based on the **Unicode East Asian Width**
-pub fn charWidthFromSlice(slice: []u8) !usize {
+fn charWidthFromSlice(slice: []u8) !usize {
     const codepoint = try utf8.decodeCodepoint(slice);
     return if (utf8.isWideChar(codepoint)) 2 else 1;
 }

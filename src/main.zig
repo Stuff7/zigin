@@ -20,6 +20,28 @@ pub fn main() !void {
     };
     defer ps.deinit();
 
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
+    _ = args.skip();
+
+    if (args.next()) |history_path| {
+        const history = try std.fs.cwd().openFile(history_path, .{});
+        var buf: [512]u8 = undefined;
+        var r = history.reader(&buf);
+
+        while (true) {
+            const ln = r.interface.takeDelimiterExclusive('\n') catch |err| switch (err) {
+                error.EndOfStream => break,
+                else => continue,
+            };
+            var item = try std.ArrayList(u8).initCapacity(allocator, ln.len);
+            item.appendSliceAssumeCapacity(ln);
+            try ps.history.append(allocator, item);
+        }
+
+        log.info("Loaded history from '{s}'", .{history_path});
+    }
+
     while (true) {
         const input = try ps.capture(allocator, ansi(" > ", "1;154"));
         log.info("{s}", .{input});

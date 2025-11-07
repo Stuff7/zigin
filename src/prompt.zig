@@ -1,11 +1,11 @@
 const std = @import("std");
-const Term = @import("term.zig");
+const term = @import("term.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
-const Key = Term.Key;
+const Key = term.Key;
 
 pub const Session = @import("Session.zig");
 
@@ -20,16 +20,13 @@ pub const Simple = struct {
     /// This function blocks until the Enter key is pressed. The final input is stored in the provided buffer.
     pub fn readln(self: @This(), buf_allocator: Allocator, prompt: anytype, buf: *ArrayList(u8)) ![]const u8 {
         var pos = buf.items.len;
-        var cursor_pos = Term.visualStringLength(buf.items) catch pos;
+        var cursor_pos = term.visualStringLength(buf.items) catch pos;
 
-        const old = try Term.setTermNonBlockingNonEcho(1);
-        defer Term.resetTerm(old) catch |err| {
-            std.log.err("Could not reset terminal state: {}", .{err});
-        };
+        const old = try term.setTermNonBlockingNonEcho(1);
+        defer term.resetTerm(old) catch {};
 
-        const term = Term{ .stdin = self.stdin, .stdout = self.stdout };
         while (true) {
-            try term.promptln(prompt, buf.items, cursor_pos);
+            try term.promptln(self.stdout, prompt, buf.items, cursor_pos);
             if (try Key.readToStringWithPosition(term, buf_allocator, buf, &pos, &cursor_pos) == Key.enter) {
                 break;
             }
