@@ -13,7 +13,7 @@ pub fn main() !void {
     var stdio: prompt.Stdio = undefined;
     stdio.initRef();
 
-    var ps = prompt.Session{
+    var ps = prompt.Session(8){
         .allocator = allocator,
         .stdin = &stdio.in.interface,
         .stdout = &stdio.out.interface,
@@ -34,23 +34,23 @@ pub fn main() !void {
                 error.EndOfStream => break,
                 else => continue,
             };
-            var item = try std.ArrayList(u8).initCapacity(allocator, ln.len);
-            item.appendSliceAssumeCapacity(ln);
-            try ps.history.append(allocator, item);
+            const sl = ps.history.extendLast();
+            sl.clearRetainingCapacity();
+            try sl.appendSlice(allocator, ln);
         }
 
         log.info("Loaded history from '{s}'", .{history_path});
     }
 
     while (true) {
-        const input = try ps.capture(allocator, ansi(" > ", "1;154"));
+        const input = try ps.capture(ansi(" > ", "1;154"));
         log.info("{s}", .{input});
 
         if (std.mem.eql(u8, input, "q")) break;
     }
 }
 
-test "All navigation and editing" {
+test "Session" {
     const allocator = std.testing.allocator;
     const in =
         // Basic left/right navigation with insertion
@@ -144,7 +144,7 @@ test "All navigation and editing" {
     var allocating = std.Io.Writer.Allocating.init(allocator);
     defer allocating.deinit();
 
-    var ps = prompt.Session{ .allocator = allocator, .stdin = &reader, .stdout = &allocating.writer };
+    var ps = prompt.Session(8){ .allocator = allocator, .stdin = &reader, .stdout = &allocating.writer };
     defer ps.deinit();
 
     const expected = [_][]const u8{
@@ -162,7 +162,7 @@ test "All navigation and editing" {
 
     var i: usize = 0;
     while (true) {
-        const input = try ps.capture(allocator, ansi(" > ", "1;154"));
+        const input = try ps.capture(ansi(" > ", "1;154"));
         std.debug.print("Input {}: {s}\n", .{ i, input });
 
         if (std.mem.eql(u8, input, "q")) break;

@@ -7,7 +7,7 @@ const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 const Key = term.Key;
 
-pub const Session = @import("Session.zig");
+pub const Session = @import("Session.zig").Session;
 
 pub const Simple = struct {
     stdout: *Writer,
@@ -27,7 +27,7 @@ pub const Simple = struct {
 
         while (true) {
             try term.promptln(self.stdout, prompt, buf.items, cursor_pos);
-            if (try Key.readToStringWithPosition(term, buf_allocator, buf, &pos, &cursor_pos) == Key.enter) {
+            if (try Key.readToStringWithPosition(self.stdin, buf_allocator, buf, &pos, &cursor_pos) == Key.enter) {
                 break;
             }
         }
