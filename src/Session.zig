@@ -96,8 +96,8 @@ pub fn Session(history_cap: usize) type {
             defer self.autocomplete_state.reset();
 
             var buf = &self.input;
-            var pos: usize = 0;
-            var cursor_pos = pos;
+            var byte_pos: usize = 0;
+            var cursor_pos = byte_pos;
             var history_pos = self.history.len;
             const last_history_idx: isize = @as(isize, @intCast(history_pos)) - 1;
 
@@ -108,7 +108,10 @@ pub fn Session(history_cap: usize) type {
                 // Render prompt based on mode
                 if (self.search_state.active) {
                     const match_idx = self.findHistoryMatch(buf.items, self.search_state.match_offset);
-                    const search_prompt = getSearchPrompt(buf.items, match_idx != null);
+                    const search_prompt = if (match_idx != null or buf.items.len == 0)
+                        "(reverse-i-search)`"
+                    else
+                        "(failed reverse-i-search)`";
                     const display_text = if (match_idx) |idx| self.history.at(idx).?.items else "";
                     try term.promptln(self.stdout, .{ search_prompt, .input, "': ", display_text }, buf.items, cursor_pos);
                 } else {
@@ -119,17 +122,17 @@ pub fn Session(history_cap: usize) type {
                     self.stdin,
                     self.allocator,
                     buf,
-                    &pos,
+                    &byte_pos,
                     &cursor_pos,
                 );
 
                 if (self.search_state.active) {
-                    try self.handleSearch(key, buf, &pos, &cursor_pos);
+                    try self.handleSearch(key, buf, &byte_pos, &cursor_pos);
                     continue;
                 }
 
                 if (key == .tab and self.autocomplete_fn != null) {
-                    try self.handleAutocomplete(buf, &pos, &cursor_pos);
+                    try self.handleAutocomplete(buf, &byte_pos, &cursor_pos);
                     continue;
                 } else if (self.autocomplete_state.active and key != .enter) {
                     self.autocomplete_state.reset();
@@ -165,8 +168,8 @@ pub fn Session(history_cap: usize) type {
                 }
 
                 buf = item;
-                pos = item.items.len;
-                cursor_pos = utf8.visualStringLength(item.items) catch pos;
+                byte_pos = item.items.len;
+                cursor_pos = utf8.visualStringLength(item.items) catch byte_pos;
             }
 
             try self.stdout.writeByte('\n');
@@ -200,16 +203,7 @@ pub fn Session(history_cap: usize) type {
             return null;
         }
 
-        fn getSearchPrompt(query: []const u8, has_match: bool) []const u8 {
-            return if (has_match)
-                "(reverse-i-search)`"
-            else if (query.len > 0)
-                "(failed reverse-i-search)`"
-            else
-                "(reverse-i-search)`";
-        }
-
-        fn handleSearch(self: *@This(), key: Key, buf: *ArrayList(u8), pos: *usize, cursor_pos: *usize) !void {
+        fn handleSearch(self: *@This(), key: Key, buf: *ArrayList(u8), byte_pos: *usize, cursor_pos: *usize) !void {
             switch (key) {
                 .ctrl_r => {
                     // Next match (go back further in history)
@@ -228,7 +222,7 @@ pub fn Session(history_cap: usize) type {
                     // Cancel search, clear input
                     self.search_state.reset();
                     buf.clearRetainingCapacity();
-                    pos.* = 0;
+                    byte_pos.* = 0;
                     cursor_pos.* = 0;
                 },
                 .escape => {
@@ -254,7 +248,7 @@ pub fn Session(history_cap: usize) type {
             }
         }
 
-        fn handleAutocomplete(self: *@This(), buf: *ArrayList(u8), pos: *usize, cursor_pos: *usize) !void {
+        fn handleAutocomplete(self: *@This(), buf: *ArrayList(u8), byte_pos: *usize, cursor_pos: *usize) !void {
             const candidates = &self.autocomplete_state.candidates;
 
             if (!self.autocomplete_state.active) {
@@ -277,8 +271,8 @@ pub fn Session(history_cap: usize) type {
                 const candidate = candidates.items[self.autocomplete_state.current_idx];
                 buf.clearRetainingCapacity();
                 try buf.appendSlice(self.allocator, candidate);
-                pos.* = buf.items.len;
-                cursor_pos.* = utf8.visualStringLength(buf.items) catch pos.*;
+                byte_pos.* = buf.items.len;
+                cursor_pos.* = utf8.visualStringLength(buf.items) catch byte_pos.*;
             }
         }
     };

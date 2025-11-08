@@ -36,7 +36,7 @@ pub const Key = enum {
     /// This function blocks until a key event is detected and returns the corresponding `Key` enum
     /// representing the user input. The function also updates the provided buffer and cursor
     /// position based on the input.
-    pub fn readToStringWithPosition(stdin: *Reader, allocator: Allocator, buf: *ArrayList(u8), pos: *usize, cursor_pos: *usize) !Key {
+    pub fn readToStringWithPosition(stdin: *Reader, allocator: Allocator, buf: *ArrayList(u8), byte_pos: *usize, cursor_pos: *usize) !Key {
         const key, const ch = try Key.readFromStdin(stdin);
 
         switch (key) {
@@ -47,35 +47,35 @@ pub const Key = enum {
                     _, slice[i] = try Key.readFromStdin(stdin);
                 }
 
-                if (pos.* == buf.items.len) {
+                if (byte_pos.* == buf.items.len) {
                     try buf.appendSlice(allocator, slice[0..charlen]);
                 } else {
-                    try buf.insertSlice(allocator, pos.*, slice[0..charlen]);
+                    try buf.insertSlice(allocator, byte_pos.*, slice[0..charlen]);
                 }
 
-                pos.* += charlen;
+                byte_pos.* += charlen;
                 cursor_pos.* += try utf8.charWidthFromSlice(slice[0..charlen]);
             },
             Key.backspace => {
-                if (moveBack(buf.items, pos.*)) |charlen| {
-                    pos.* -= charlen;
-                    cursor_pos.* -= try utf8.charWidthFromSlice(buf.items[pos.* .. pos.* + charlen]);
+                if (moveBack(buf.items, byte_pos.*)) |charlen| {
+                    byte_pos.* -= charlen;
+                    cursor_pos.* -= try utf8.charWidthFromSlice(buf.items[byte_pos.* .. byte_pos.* + charlen]);
                     if (charlen == 1) {
-                        _ = buf.orderedRemove(pos.*);
+                        _ = buf.orderedRemove(byte_pos.*);
                     } else {
-                        buf.replaceRangeAssumeCapacity(pos.*, charlen, "");
+                        buf.replaceRangeAssumeCapacity(byte_pos.*, charlen, "");
                     }
                 }
             },
             Key.arrow_left => {
-                if (moveBack(buf.items, pos.*)) |charlen| {
-                    pos.* -= charlen;
-                    cursor_pos.* -= try utf8.charWidthFromSlice(buf.items[pos.* .. pos.* + charlen]);
+                if (moveBack(buf.items, byte_pos.*)) |charlen| {
+                    byte_pos.* -= charlen;
+                    cursor_pos.* -= try utf8.charWidthFromSlice(buf.items[byte_pos.* .. byte_pos.* + charlen]);
                 }
             },
             Key.arrow_right => {
-                if (pos.* < buf.items.len) {
-                    var i: usize = pos.*;
+                if (byte_pos.* < buf.items.len) {
+                    var i: usize = byte_pos.*;
                     const charlen = ret: while (i < buf.items.len) : (i += 1) {
                         if (std.unicode.utf8ByteSequenceLength(buf.items[i]) catch null) |c| {
                             break :ret c;
@@ -83,12 +83,12 @@ pub const Key = enum {
                     } else {
                         break :ret 1;
                     };
-                    pos.* += charlen;
-                    cursor_pos.* += try utf8.charWidthFromSlice(buf.items[pos.* - charlen .. pos.*]);
+                    byte_pos.* += charlen;
+                    cursor_pos.* += try utf8.charWidthFromSlice(buf.items[byte_pos.* - charlen .. byte_pos.*]);
                 }
             },
             Key.ctrl_backspace => {
-                var idx = pos.*;
+                var idx = byte_pos.*;
 
                 while (idx > 0 and utf8.isSpace(buf.items[idx - 1])) {
                     idx -= 1;
@@ -98,13 +98,13 @@ pub const Key = enum {
                     idx -= 1;
                 }
 
-                const charlen = try utf8.visualStringLength(buf.items[idx..pos.*]);
-                buf.replaceRangeAssumeCapacity(idx, pos.* - idx, "");
-                pos.* = idx;
+                const charlen = try utf8.visualStringLength(buf.items[idx..byte_pos.*]);
+                buf.replaceRangeAssumeCapacity(idx, byte_pos.* - idx, "");
+                byte_pos.* = idx;
                 cursor_pos.* -= charlen;
             },
             Key.ctrl_arrow_left => {
-                var idx = pos.*;
+                var idx = byte_pos.*;
 
                 while (idx > 0 and utf8.isSpace(buf.items[idx - 1])) {
                     idx -= 1;
@@ -114,12 +114,12 @@ pub const Key = enum {
                     idx -= 1;
                 }
 
-                const charlen = try utf8.visualStringLength(buf.items[idx..pos.*]);
-                pos.* = idx;
+                const charlen = try utf8.visualStringLength(buf.items[idx..byte_pos.*]);
+                byte_pos.* = idx;
                 cursor_pos.* -= charlen;
             },
             Key.ctrl_arrow_right => {
-                var idx = pos.*;
+                var idx = byte_pos.*;
 
                 while (idx < buf.items.len and utf8.isSpace(buf.items[idx])) {
                     idx += 1;
@@ -129,8 +129,8 @@ pub const Key = enum {
                     idx += 1;
                 }
 
-                const charlen = try utf8.visualStringLength(buf.items[pos.*..idx]);
-                pos.* = idx;
+                const charlen = try utf8.visualStringLength(buf.items[byte_pos.*..idx]);
+                byte_pos.* = idx;
                 cursor_pos.* += charlen;
             },
             else => {},
@@ -151,21 +151,21 @@ pub const Key = enum {
         };
 
         var ch: u8 = 0;
-        var pos: usize = 0;
+        var byte_pos: usize = 0;
 
-        while (pos < sequences.len + 1) {
+        while (byte_pos < sequences.len + 1) {
             ch = try stdin.takeByte();
 
             for (sequences) |esc| {
-                if (pos >= esc.seq.len) {
+                if (byte_pos >= esc.seq.len) {
                     continue;
                 }
 
-                if (esc.seq[pos] == ch and esc.seq.len - 1 == pos) {
+                if (esc.seq[byte_pos] == ch and esc.seq.len - 1 == byte_pos) {
                     return esc.key;
                 }
             }
-            pos += 1;
+            byte_pos += 1;
         }
 
         return .escape;
@@ -258,8 +258,8 @@ pub fn resetTerm(t: os.termios) !void {
 
 /// Given a **utf-8** string it returns the **byte position** 1 character to the left relative to `pos`
 /// or **null** if there's no more characters to the left
-fn moveBack(str: []const u8, pos: usize) ?usize {
-    var i = pos;
+fn moveBack(str: []const u8, byte_pos: usize) ?usize {
+    var i = byte_pos;
     const charlen = ret: while (i != 0) : (i -= 1) {
         if (std.unicode.utf8ByteSequenceLength(str[i - 1]) catch null) |c| {
             break :ret c;
