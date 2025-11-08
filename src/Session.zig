@@ -259,10 +259,7 @@ pub fn Session(history_cap: usize) type {
 
             if (!self.autocomplete_state.active) {
                 // First Tab press - get candidates from caller
-                const input_copy = try self.allocator.dupe(u8, buf.items);
-                defer self.allocator.free(input_copy);
-
-                try self.autocomplete_fn.?(input_copy, candidates, self.allocator);
+                try self.autocomplete_fn.?(buf.items, candidates, self.allocator);
                 if (candidates.items.len == 0) return;
 
                 self.autocomplete_state.active = true;
