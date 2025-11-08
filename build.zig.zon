@@ -1,6 +1,6 @@
 .{
     .name = .prompt,
-    .version = "0.2.0",
+    .version = "1.0.0",
     .fingerprint = 0x62ef6c38f98fcfec,
     .minimum_zig_version = "0.15.0-dev.1283+1fcaf90dd",
     .dependencies = .{
