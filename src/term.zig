@@ -13,7 +13,9 @@ pub const Key = enum {
     na,
     char,
     tab,
+    shift_tab,
     enter,
+    escape,
     backspace,
     arrow_up,
     arrow_down,
@@ -22,8 +24,10 @@ pub const Key = enum {
     ctrl_backspace,
     ctrl_arrow_right,
     ctrl_arrow_left,
+    ctrl_c,
     ctrl_g,
     ctrl_r,
+    ctrl_s,
 
     /// Reads a single utf-8 character of user input, allowing basic editing operations with a cursor.
     ///
@@ -141,6 +145,7 @@ pub const Key = enum {
             .{ .key = .arrow_down, .seq = "[B" },
             .{ .key = .arrow_right, .seq = "[C" },
             .{ .key = .arrow_left, .seq = "[D" },
+            .{ .key = .shift_tab, .seq = "[Z" },
             .{ .key = .ctrl_arrow_right, .seq = "[1;5C" },
             .{ .key = .ctrl_arrow_left, .seq = "[1;5D" },
         };
@@ -163,7 +168,7 @@ pub const Key = enum {
             pos += 1;
         }
 
-        return .na;
+        return .escape;
     }
 
     pub fn readFromStdin(stdin: *Reader) !struct { Key, u8 } {
@@ -173,7 +178,9 @@ pub const Key = enum {
             0x08, 0x17 => .ctrl_backspace,
             0x09 => .tab,
             0x0A => .enter,
+            0x03 => .ctrl_c,
             0x12 => .ctrl_r,
+            0x13 => .ctrl_s,
             0x07 => .ctrl_g,
             0x1B => try Key.fromEscapeSequence(stdin),
             0x7F => .backspace,
