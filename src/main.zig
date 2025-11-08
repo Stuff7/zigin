@@ -17,6 +17,7 @@ pub fn main() !void {
         .allocator = allocator,
         .stdin = &stdio.in.interface,
         .stdout = &stdio.out.interface,
+        .autocomplete_fn = autocomplete,
     };
     defer ps.deinit();
 
@@ -47,6 +48,22 @@ pub fn main() !void {
         log.info("{s}", .{input});
 
         if (std.mem.eql(u8, input, "q")) break;
+    }
+}
+
+fn autocomplete(input: []const u8, candidates: *std.ArrayList([]const u8), allocator: std.mem.Allocator) !void {
+    if (std.mem.startsWith(u8, input, "SELECT")) {
+        if (std.mem.indexOf(u8, input, "FROM") == null) {
+            try candidates.append(allocator, "SELECT * FROM ");
+            try candidates.append(allocator, "SELECT id, name FROM ");
+        } else if (std.mem.indexOf(u8, input, "FROM users") != null) {
+            try candidates.append(allocator, "SELECT * FROM users WHERE id = ");
+            try candidates.append(allocator, "SELECT * FROM users ORDER BY name");
+        }
+    } else if (input.len == 0) {
+        try candidates.append(allocator, "SELECT");
+        try candidates.append(allocator, "INSERT");
+        try candidates.append(allocator, "UPDATE");
     }
 }
 
@@ -158,17 +175,16 @@ test "Session" {
         "test",
         "Ã¥Ã¤Ã¶¶",
         "This is testmistake",
+        "the very quick brown fox",
+        "q",
     };
 
     var i: usize = 0;
     while (true) {
         const input = try ps.capture(ansi(" > ", "1;154"));
-        std.debug.print("Input {}: {s}\n", .{ i, input });
-
-        if (std.mem.eql(u8, input, "q")) break;
-
-        // try std.testing.expectEqualStrings(expected[i], input);
+        try std.testing.expectEqualStrings(expected[i], input);
         i += 1;
+        if (std.mem.eql(u8, input, "q")) break;
     }
 
     try std.testing.expectEqual(expected.len, i);

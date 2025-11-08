@@ -25,6 +25,25 @@ pub fn Session(history_cap: usize) type {
             }
         };
 
+        const AutocompleteState = struct {
+            active: bool = false,
+            candidates: ArrayList([]const u8) = .empty,
+            current_idx: usize = 0,
+            original_input: ArrayList(u8) = .empty,
+
+            fn reset(self: *AutocompleteState) void {
+                self.active = false;
+                self.candidates.clearRetainingCapacity();
+                self.current_idx = 0;
+                self.original_input.clearRetainingCapacity();
+            }
+
+            fn deinit(self: *@This(), allocator: Allocator) void {
+                self.original_input.deinit(allocator);
+                self.candidates.deinit(allocator);
+            }
+        };
+
         allocator: Allocator,
         history: History = .init(.empty),
         local_history: History = .init(.empty),
@@ -32,11 +51,14 @@ pub fn Session(history_cap: usize) type {
         stdout: *Writer,
         stdin: *Reader,
         search_state: SearchState = .{},
+        autocomplete_state: AutocompleteState = .{},
+        autocomplete_fn: ?*const fn ([]const u8, *ArrayList([]const u8), Allocator) anyerror!void = null,
 
         pub fn deinit(self: *@This()) void {
             for (&self.history.buffer) |*ln| ln.deinit(self.allocator);
             for (&self.local_history.buffer) |*ln| ln.deinit(self.allocator);
             self.input.deinit(self.allocator);
+            self.autocomplete_state.deinit(self.allocator);
         }
 
         /// Reads and captures user input into the session history
@@ -57,10 +79,21 @@ pub fn Session(history_cap: usize) type {
         /// - Enter: Accept current match
         /// - Ctrl+G or Ctrl+C: Cancel search and clear input
         /// - Esc: Exit search mode and continue editing
+        ///
+        /// # Autocomplete
+        ///
+        /// Press Tab to trigger autocomplete. In this mode:
+        /// - Tab: Cycle through matching candidates
+        /// - Enter: Accept current candidate
+        /// - Any other key: Exit autocomplete and continue editing
+        ///
+        /// Autocomplete requires setting `autocomplete_fn` which receives the current input
+        /// and adds the candidates to the candidates ArrayList param.
         pub fn capture(self: *@This(), comptime prompt: []const u8) ![]const u8 {
             defer self.input.clearRetainingCapacity();
             defer self.local_history.clear();
             defer self.search_state.reset();
+            defer self.autocomplete_state.reset();
 
             var buf = &self.input;
             var pos: usize = 0;
@@ -93,6 +126,13 @@ pub fn Session(history_cap: usize) type {
                 if (self.search_state.active) {
                     try self.handleSearch(key, buf, &pos, &cursor_pos);
                     continue;
+                }
+
+                if (key == .tab and self.autocomplete_fn != null) {
+                    try self.handleAutocomplete(buf, &pos, &cursor_pos);
+                    continue;
+                } else if (self.autocomplete_state.active and key != .enter) {
+                    self.autocomplete_state.reset();
                 }
 
                 // Normal mode key handling
@@ -149,7 +189,7 @@ pub fn Session(history_cap: usize) type {
                 i -= 1;
                 const entry = self.history.at(i) orelse continue;
 
-                if (std.mem.indexOf(u8, entry.items, query) != null) {
+                if (std.ascii.indexOfIgnoreCase(entry.items, query) != null) {
                     if (matches_found == nth) {
                         return i;
                     }
@@ -211,6 +251,37 @@ pub fn Session(history_cap: usize) type {
                     self.search_state.match_offset = 0;
                 },
                 else => {},
+            }
+        }
+
+        fn handleAutocomplete(self: *@This(), buf: *ArrayList(u8), pos: *usize, cursor_pos: *usize) !void {
+            const candidates = &self.autocomplete_state.candidates;
+
+            if (!self.autocomplete_state.active) {
+                // First Tab press - get candidates from caller
+                const input_copy = try self.allocator.dupe(u8, buf.items);
+                defer self.allocator.free(input_copy);
+
+                try self.autocomplete_fn.?(input_copy, candidates, self.allocator);
+                if (candidates.items.len == 0) return;
+
+                self.autocomplete_state.active = true;
+                try self.autocomplete_state.original_input.appendSlice(self.allocator, buf.items);
+            } else {
+                // Subsequent Tab presses - cycle through candidates
+                if (candidates.items.len > 0) {
+                    self.autocomplete_state.current_idx =
+                        (self.autocomplete_state.current_idx + 1) % candidates.items.len;
+                }
+            }
+
+            // Apply current candidate
+            if (candidates.items.len > 0) {
+                const candidate = candidates.items[self.autocomplete_state.current_idx];
+                buf.clearRetainingCapacity();
+                try buf.appendSlice(self.allocator, candidate);
+                pos.* = buf.items.len;
+                cursor_pos.* = utf8.visualStringLength(buf.items) catch pos.*;
             }
         }
     };
