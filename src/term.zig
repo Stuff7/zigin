@@ -54,12 +54,12 @@ pub const Key = enum {
                 }
 
                 pos.* += charlen;
-                cursor_pos.* += try charWidthFromSlice(slice[0..charlen]);
+                cursor_pos.* += try utf8.charWidthFromSlice(slice[0..charlen]);
             },
             Key.backspace => {
                 if (moveBack(buf.items, pos.*)) |charlen| {
                     pos.* -= charlen;
-                    cursor_pos.* -= try charWidthFromSlice(buf.items[pos.* .. pos.* + charlen]);
+                    cursor_pos.* -= try utf8.charWidthFromSlice(buf.items[pos.* .. pos.* + charlen]);
                     if (charlen == 1) {
                         _ = buf.orderedRemove(pos.*);
                     } else {
@@ -70,7 +70,7 @@ pub const Key = enum {
             Key.arrow_left => {
                 if (moveBack(buf.items, pos.*)) |charlen| {
                     pos.* -= charlen;
-                    cursor_pos.* -= try charWidthFromSlice(buf.items[pos.* .. pos.* + charlen]);
+                    cursor_pos.* -= try utf8.charWidthFromSlice(buf.items[pos.* .. pos.* + charlen]);
                 }
             },
             Key.arrow_right => {
@@ -84,7 +84,7 @@ pub const Key = enum {
                         break :ret 1;
                     };
                     pos.* += charlen;
-                    cursor_pos.* += try charWidthFromSlice(buf.items[pos.* - charlen .. pos.*]);
+                    cursor_pos.* += try utf8.charWidthFromSlice(buf.items[pos.* - charlen .. pos.*]);
                 }
             },
             Key.ctrl_backspace => {
@@ -98,7 +98,7 @@ pub const Key = enum {
                     idx -= 1;
                 }
 
-                const charlen = try visualStringLength(buf.items[idx..pos.*]);
+                const charlen = try utf8.visualStringLength(buf.items[idx..pos.*]);
                 buf.replaceRangeAssumeCapacity(idx, pos.* - idx, "");
                 pos.* = idx;
                 cursor_pos.* -= charlen;
@@ -114,7 +114,7 @@ pub const Key = enum {
                     idx -= 1;
                 }
 
-                const charlen = try visualStringLength(buf.items[idx..pos.*]);
+                const charlen = try utf8.visualStringLength(buf.items[idx..pos.*]);
                 pos.* = idx;
                 cursor_pos.* -= charlen;
             },
@@ -129,7 +129,7 @@ pub const Key = enum {
                     idx += 1;
                 }
 
-                const charlen = try visualStringLength(buf.items[pos.*..idx]);
+                const charlen = try utf8.visualStringLength(buf.items[pos.*..idx]);
                 pos.* = idx;
                 cursor_pos.* += charlen;
             },
@@ -191,38 +191,11 @@ pub const Key = enum {
     }
 };
 
-pub inline fn isString(comptime T: type) bool {
-    const info = @typeInfo(T);
-
-    if (info == .pointer) {
-        const ptr_info = info.pointer;
-
-        // []const u8 or []u8 (slices)
-        if (ptr_info.size == .slice) {
-            return ptr_info.child == u8;
-        }
-
-        // *const [N]u8 or *[N]u8 (pointer to array)
-        if (ptr_info.size == .one) {
-            const child_info = @typeInfo(ptr_info.child);
-            if (child_info == .array) {
-                return child_info.array.child == u8;
-            }
-        }
-    }
-
-    if (info == .array) {
-        return info.array.child == u8;
-    }
-
-    return false;
-}
-
 pub fn promptln(stdout: *Writer, prompt: anytype, input: []const u8, cursor: usize) !void {
     const args = blk: {
         const P = @TypeOf(prompt);
 
-        if (isString(P)) break :blk .{ prompt, .input };
+        if (zut.isString(P)) break :blk .{ prompt, .input };
 
         if (!@typeInfo(P).@"struct".is_tuple) {
             @compileError(
@@ -237,7 +210,7 @@ pub fn promptln(stdout: *Writer, prompt: anytype, input: []const u8, cursor: usi
     var pos = cursor;
     try stdout.writeAll("\x1b[2K\r");
     inline for (args) |arg| {
-        if (isString(@TypeOf(arg))) {
+        if (zut.isString(@TypeOf(arg))) {
             try stdout.writeAll(arg);
             if (!input_found) pos += try utf8.charLength(arg);
         } else if (arg == .input) {
@@ -283,18 +256,6 @@ pub fn resetTerm(t: os.termios) !void {
     }
 }
 
-/// Given a **utf-8** string it returns it's *visual* length based on the **Unicode East Asian Width** of each character
-pub fn visualStringLength(str: []const u8) !usize {
-    var it = (try std.unicode.Utf8View.init(str)).iterator();
-    var charlen: usize = 0;
-
-    while (it.nextCodepoint()) |c| {
-        charlen += if (utf8.isWideChar(c)) 2 else 1;
-    }
-
-    return charlen;
-}
-
 /// Given a **utf-8** string it returns the **byte position** 1 character to the left relative to `pos`
 /// or **null** if there's no more characters to the left
 fn moveBack(str: []const u8, pos: usize) ?usize {
@@ -308,10 +269,4 @@ fn moveBack(str: []const u8, pos: usize) ?usize {
     };
 
     return if (i > 0) charlen else null;
-}
-
-/// Given a **utf-8** character slice it returns it's *visual* length based on the **Unicode East Asian Width**
-fn charWidthFromSlice(slice: []u8) !usize {
-    const codepoint = try utf8.decodeCodepoint(slice);
-    return if (utf8.isWideChar(codepoint)) 2 else 1;
 }

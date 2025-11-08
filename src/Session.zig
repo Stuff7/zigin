@@ -1,8 +1,10 @@
 const std = @import("std");
 const term = @import("term.zig");
+const zut = @import("zut");
 const log = std.log;
+const utf8 = zut.utf8;
 
-const RingBuffer = @import("RingBuffer.zig").RingBuffer;
+const RingBuffer = zut.mem.RingBuffer;
 const ArrayList = std.ArrayList;
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
@@ -124,7 +126,7 @@ pub fn Session(history_cap: usize) type {
 
                 buf = item;
                 pos = item.items.len;
-                cursor_pos = term.visualStringLength(item.items) catch pos;
+                cursor_pos = utf8.visualStringLength(item.items) catch pos;
             }
 
             try self.stdout.writeByte('\n');
